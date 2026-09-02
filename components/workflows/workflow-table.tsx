@@ -94,9 +94,11 @@ export function WorkflowTable({ workflows }: { workflows: Workflow[] }) {
               >
                 {workflow.title}
               </Link>
-              <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                {workflow.objective}
-              </p>
+              {workflow.objective !== workflow.title && (
+                <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                  {workflow.objective}
+                </p>
+              )}
             </TableCell>
             <TableCell>
               <StatusBadge status={workflow.status} />

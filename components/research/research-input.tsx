@@ -6,33 +6,49 @@ import { ArrowUpRight } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
+import { startResearch } from "@/lib/api-client"
 import { useWorkflowStore } from "@/lib/workflow-store"
-
-function deriveTitle(objective: string) {
-  const trimmed = objective.trim()
-  return trimmed.length > 60 ? `${trimmed.slice(0, 57)}...` : trimmed
-}
 
 export function ResearchInput() {
   const router = useRouter()
   const { addWorkflow } = useWorkflowStore()
+  const [title, setTitle] = React.useState("")
   const [objective, setObjective] = React.useState("")
   const [instructions, setInstructions] = React.useState("")
+  const [isStarting, setIsStarting] = React.useState(false)
+  const [error, setError] = React.useState<string | null>(null)
 
-  function handleStart() {
-    const trimmed = objective.trim()
-    if (!trimmed) return
+  const canSubmit = title.trim() && objective.trim()
 
-    const workflow = addWorkflow({
-      title: deriveTitle(trimmed),
-      objective: trimmed,
-      instructions: instructions.trim(),
-    })
+  async function handleStart() {
+    const trimmedTitle = title.trim()
+    const trimmedObjective = objective.trim()
+    if (!trimmedTitle || !trimmedObjective) return
 
-    setObjective("")
-    setInstructions("")
-    router.push(`/workflows/${workflow.id}`)
+    setIsStarting(true)
+    setError(null)
+
+    try {
+      const { workflowId } = await startResearch(trimmedObjective)
+
+      const workflow = addWorkflow({
+        title: trimmedTitle,
+        objective: trimmedObjective,
+        instructions: instructions.trim(),
+        temporalWorkflowId: workflowId,
+      })
+
+      setTitle("")
+      setObjective("")
+      setInstructions("")
+      router.push(`/workflows/${workflow.id}`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to start research")
+    } finally {
+      setIsStarting(false)
+    }
   }
 
   return (
@@ -41,6 +57,17 @@ export function ResearchInput() {
         <CardTitle>What would you like to research?</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
+        <div className="space-y-1.5">
+          <label className="text-xs font-semibold tracking-widest text-muted-foreground uppercase">
+            Research title
+          </label>
+          <Input
+            aria-label="Research title"
+            value={title}
+            onChange={(event) => setTitle(event.target.value)}
+            placeholder="Payment provider comparison"
+          />
+        </div>
         <Textarea
           aria-label="Research objective"
           value={objective}
@@ -61,9 +88,10 @@ export function ResearchInput() {
           />
         </div>
       </CardContent>
-      <CardFooter className="justify-end">
-        <Button onPress={handleStart} isDisabled={!objective.trim()}>
-          Start Research
+      <CardFooter className="justify-between gap-4">
+        {error ? <p className="text-xs text-destructive">{error}</p> : <span />}
+        <Button onPress={handleStart} isDisabled={!canSubmit || isStarting}>
+          {isStarting ? "Starting..." : "Start Research"}
           <ArrowUpRight data-icon="inline-end" />
         </Button>
       </CardFooter>

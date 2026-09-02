@@ -1,5 +1,6 @@
 "use client"
 
+import * as React from "react"
 import { ArrowLeft, Pause, Play, XCircle } from "lucide-react"
 
 import { Button, LinkButton } from "@/components/ui/button"
@@ -12,11 +13,23 @@ import { WorkflowProgress } from "@/components/workflows/workflow-progress"
 import { WorkflowTimeline } from "@/components/workflows/workflow-timeline"
 import { useWorkflowActions } from "@/components/workflows/use-workflow-actions"
 import { SourceTable } from "@/components/sources/source-table"
+import { useResearchStatus } from "@/lib/use-research-status"
+import { useWorkflowStore } from "@/lib/workflow-store"
 import type { Workflow } from "@/lib/types"
 
 export function WorkflowDetail({ workflow }: { workflow: Workflow }) {
   const { canPause, canResume, canCancel, pause, resume, cancel } =
     useWorkflowActions(workflow)
+  const { completeWorkflow } = useWorkflowStore()
+  const { status: temporalStatus, error: temporalError } = useResearchStatus(
+    workflow.temporalWorkflowId
+  )
+
+  React.useEffect(() => {
+    if (temporalStatus?.status === "completed" && workflow.status !== "completed") {
+      completeWorkflow(workflow.id, temporalStatus.message)
+    }
+  }, [temporalStatus, workflow.id, workflow.status, completeWorkflow])
 
   const completedSteps = workflow.steps.filter(
     (step) => step.status === "completed"
@@ -44,6 +57,14 @@ export function WorkflowDetail({ workflow }: { workflow: Workflow }) {
             </div>
             <StatusBadge status={workflow.status} />
           </div>
+          {workflow.temporalWorkflowId && (
+            <p className="pl-1 font-mono text-xs text-muted-foreground">
+              Temporal:{" "}
+              {temporalError
+                ? temporalError
+                : (temporalStatus?.message ?? "Connecting…")}
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-2">
           {canPause && (

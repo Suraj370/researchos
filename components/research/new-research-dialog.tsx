@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
+import { startResearch } from "@/lib/api-client"
 import { useWorkflowStore } from "@/lib/workflow-store"
 
 const EMPTY_FORM = { title: "", objective: "", instructions: "" }
@@ -23,20 +24,34 @@ export function NewResearchDialog() {
   const { addWorkflow } = useWorkflowStore()
   const [isOpen, setIsOpen] = React.useState(false)
   const [form, setForm] = React.useState(EMPTY_FORM)
+  const [isSubmitting, setIsSubmitting] = React.useState(false)
+  const [error, setError] = React.useState<string | null>(null)
 
   const canSubmit = form.title.trim() && form.objective.trim()
 
-  function handleSubmit() {
+  async function handleSubmit() {
     if (!canSubmit) return
 
-    addWorkflow({
-      title: form.title.trim(),
-      objective: form.objective.trim(),
-      instructions: form.instructions.trim(),
-    })
+    setIsSubmitting(true)
+    setError(null)
 
-    setForm(EMPTY_FORM)
-    setIsOpen(false)
+    try {
+      const { workflowId } = await startResearch(form.objective.trim())
+
+      addWorkflow({
+        title: form.title.trim(),
+        objective: form.objective.trim(),
+        instructions: form.instructions.trim(),
+        temporalWorkflowId: workflowId,
+      })
+
+      setForm(EMPTY_FORM)
+      setIsOpen(false)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to start research")
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   return (
@@ -98,10 +113,12 @@ export function NewResearchDialog() {
           </div>
         </div>
 
+        {error ? <p className="text-xs text-destructive">{error}</p> : null}
+
         <DialogFooter>
           <DialogClose>Cancel</DialogClose>
-          <Button onPress={handleSubmit} isDisabled={!canSubmit}>
-            Start Research
+          <Button onPress={handleSubmit} isDisabled={!canSubmit || isSubmitting}>
+            {isSubmitting ? "Starting..." : "Start Research"}
           </Button>
         </DialogFooter>
       </Dialog>
