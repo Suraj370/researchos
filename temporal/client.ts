@@ -5,7 +5,7 @@ import type { ResearchInput, ResearchStatusUpdate } from "../lib/temporal-types"
 import { extractFailureMessage } from "../lib/temporal-failure";
 import {
   getResearchStatusQuery,
-  researchWorkflow,
+  researchAgentWorkflow,
 } from "./workflows/research.workflow";
 
 let clientPromise: Promise<WorkflowClient> | null = null;
@@ -26,7 +26,7 @@ export async function startResearchWorkflow(
 
   const workflowId = `research-${input.researchId}`;
 
-  await client.start(researchWorkflow, {
+  await client.start(researchAgentWorkflow, {
     taskQueue: RESEARCH_TASK_QUEUE,
     workflowId,
     args: [input],

@@ -1,13 +1,17 @@
 import {
   getResearchSources,
   insertResearchSources,
+  saveAgentSummary,
+  saveResearchPlan,
   updateResearchStatus,
   upsertCompetitiveComparison,
   upsertCompetitorAnalysis,
 } from "../../lib/db/queries";
+import type { AgentSummary } from "../../lib/db/queries";
 import { NonRetryableError } from "../lib/errors";
 import type { NormalizedSource, ResearchSource } from "../../lib/temporal-types";
 import type { CompetitiveComparison, CompetitorAnalysis } from "../../lib/analysis-types";
+import type { ResearchPlan } from "../../lib/agent-types";
 
 function wrapDbError(err: unknown): never {
   if (err instanceof Error && /DATABASE_URL/.test(err.message)) {
@@ -56,6 +60,22 @@ export async function storeCompetitorAnalysis(analysis: CompetitorAnalysis): Pro
 export async function storeCompetitiveComparison(comparison: CompetitiveComparison): Promise<void> {
   try {
     await upsertCompetitiveComparison(comparison);
+  } catch (err) {
+    wrapDbError(err);
+  }
+}
+
+export async function storeResearchPlan(input: { researchId: string; plan: ResearchPlan }): Promise<void> {
+  try {
+    await saveResearchPlan(input.researchId, input.plan);
+  } catch (err) {
+    wrapDbError(err);
+  }
+}
+
+export async function storeAgentSummary(input: { researchId: string; summary: AgentSummary }): Promise<void> {
+  try {
+    await saveAgentSummary(input.researchId, input.summary);
   } catch (err) {
     wrapDbError(err);
   }

@@ -1,3 +1,5 @@
+import type { AgentState } from "./agent-types";
+
 export interface ResearchInput {
   researchId: string;
   query: string;
@@ -48,17 +50,28 @@ export interface ResearchSource extends NormalizedSource {
 
 export type ResearchWorkflowStatus =
   | "initializing"
+  | "planning"
   | "searching"
+  | "evaluating"
   | "normalizing"
   | "storing"
   | "analyzing"
   | "completed"
   | "failed";
 
+/** Real, phase-appropriate progress counts (e.g. "12 of 45 searches", "45 of 45 sources stored"). */
+export interface ResearchStatusProgress {
+  label: string;
+  completed: number;
+  total: number;
+}
+
 export interface ResearchStatusUpdate {
   researchId: string;
   status: ResearchWorkflowStatus;
   message: string;
+  progress?: ResearchStatusProgress;
+  agent?: AgentState;
 }
 
 export interface ResearchResult {
@@ -68,6 +81,12 @@ export interface ResearchResult {
   competitors: string[];
   sourceCount: number;
   analyzedCount: number;
+  agent?: {
+    outcome: "completed" | "limit_reached";
+    iterations: number;
+    searchesExecuted: number;
+    missingAreas: string[];
+  };
 }
 
 export const RESEARCH_TASK_QUEUE = "researchflow";

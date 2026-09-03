@@ -14,6 +14,7 @@ import * as exaActivities from "./activities/exa.activities";
 import * as normalizeActivities from "./activities/normalize.activities";
 import * as storeActivities from "./activities/store.activities";
 import * as analysisActivities from "./activities/analysis.activities";
+import * as agentActivities from "./activities/agent.activities";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -34,6 +35,7 @@ async function run() {
       ...normalizeActivities,
       ...storeActivities,
       ...analysisActivities,
+      ...agentActivities,
     },
   });
 

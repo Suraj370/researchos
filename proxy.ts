@@ -3,8 +3,8 @@ import { getSessionCookie } from "better-auth/cookies"
 
 const AUTH_PAGES = ["/sign-in", "/sign-up"]
 
-export async function middleware(request: NextRequest) {
-  // Optimistic check only (cookie presence, no DB round trip - middleware runs on
+export async function proxy(request: NextRequest) {
+  // Optimistic check only (cookie presence, no DB round trip - proxy runs on
   // the Edge runtime, which can't reach Postgres). Real enforcement happens in
   // every protected oRPC procedure via auth.api.getSession(), which IS DB-backed.
   const sessionCookie = getSessionCookie(request)

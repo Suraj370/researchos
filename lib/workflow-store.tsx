@@ -5,8 +5,37 @@ import * as React from "react"
 import { fetchResearchList } from "@/lib/api-client"
 import { adaptResearchRecord } from "@/lib/adapt-research-record"
 import { PHASE_PROGRESS, PHASE_STEPS } from "@/lib/workflow-phases"
-import type { NewResearchInput, ResearchSource, Workflow, WorkflowStatus } from "@/lib/types"
+import type { NewResearchInput, ResearchSource, Workflow, WorkflowAgentActivity, WorkflowStatus } from "@/lib/types"
 import type { ResearchStatusUpdate } from "@/lib/temporal-types"
+
+/** Overlays a status update's real item-progress counts and agent-loop state onto agentActivity, if it carried any. */
+function mergeAgentInfo(
+  agentActivity: WorkflowAgentActivity,
+  status: ResearchStatusUpdate
+): WorkflowAgentActivity {
+  let next = agentActivity
+
+  if (status.progress) {
+    next = {
+      ...next,
+      itemsLabel: status.progress.label,
+      itemsProcessed: status.progress.completed,
+      itemsTotal: status.progress.total,
+    }
+  }
+
+  if (status.agent) {
+    next = {
+      ...next,
+      iteration: status.agent.iteration,
+      maxIterations: status.agent.maxIterations,
+      missingAreas: status.agent.missingAreas,
+      lastDecision: status.agent.lastDecision,
+    }
+  }
+
+  return next
+}
 
 interface WorkflowStoreValue {
   workflows: Workflow[]
@@ -77,8 +106,9 @@ export function WorkflowStoreProvider({
         currentStatus: "Research workflow starting",
         taskLabel: "Initializing",
         taskDescription: "Setting up the research workflow.",
-        sourcesProcessed: 0,
-        sourcesTotal: 0,
+        itemsLabel: "Sources processed",
+        itemsProcessed: 0,
+        itemsTotal: 0,
         progress: PHASE_PROGRESS.initializing,
       },
     }
@@ -121,13 +151,16 @@ export function WorkflowStoreProvider({
               },
             ],
             agentActivity: workflow.agentActivity
-              ? {
-                  ...workflow.agentActivity,
-                  currentStatus: status.message,
-                  taskLabel: "Completed",
-                  taskDescription: status.message,
-                  progress: 100,
-                }
+              ? mergeAgentInfo(
+                  {
+                    ...workflow.agentActivity,
+                    currentStatus: status.message,
+                    taskLabel: "Completed",
+                    taskDescription: status.message,
+                    progress: 100,
+                  },
+                  status
+                )
               : workflow.agentActivity,
           }
         }
@@ -157,8 +190,13 @@ export function WorkflowStoreProvider({
         const phaseIndex = PHASE_STEPS.findIndex((phase) => phase.id === status.status)
         if (phaseIndex === -1) return workflow
 
+        const stepDescription =
+          status.agent && (status.status === "searching" || status.status === "evaluating")
+            ? `${status.message} (iteration ${status.agent.iteration} of ${status.agent.maxIterations})`
+            : status.message
+
         const currentStep = workflow.steps[phaseIndex]
-        if (currentStep?.status === "running" && currentStep.description === status.message) {
+        if (currentStep?.status === "running" && currentStep.description === stepDescription) {
           return workflow
         }
 
@@ -169,17 +207,20 @@ export function WorkflowStoreProvider({
           progress,
           steps: workflow.steps.map((step, index) => {
             if (index < phaseIndex) return step.status === "completed" ? step : { ...step, status: "completed" }
-            if (index === phaseIndex) return { ...step, status: "running", description: status.message }
-            return step
+            if (index === phaseIndex) return { ...step, status: "running", description: stepDescription }
+            return step.status === "pending" ? step : { ...step, status: "pending", description: undefined }
           }),
           agentActivity: workflow.agentActivity
-            ? {
-                ...workflow.agentActivity,
-                currentStatus: status.message,
-                taskLabel: PHASE_STEPS[phaseIndex].name,
-                taskDescription: status.message,
-                progress,
-              }
+            ? mergeAgentInfo(
+                {
+                  ...workflow.agentActivity,
+                  currentStatus: status.message,
+                  taskLabel: PHASE_STEPS[phaseIndex].name,
+                  taskDescription: status.message,
+                  progress,
+                },
+                status
+              )
             : workflow.agentActivity,
         }
       })

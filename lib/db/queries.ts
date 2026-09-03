@@ -10,6 +10,7 @@ import type {
   SourceType,
 } from "@/lib/temporal-types";
 import type { CompetitiveComparison, CompetitorAnalysis } from "@/lib/analysis-types";
+import type { ResearchPlan } from "@/lib/agent-types";
 
 export async function createResearchRecord(input: {
   id: string;
@@ -66,6 +67,33 @@ export async function getResearchOwnerId(id: string): Promise<string | null | un
 export async function updateResearchStatus(id: string, status: string): Promise<void> {
   const db = getDb();
   await db.update(research).set({ status, updatedAt: new Date() }).where(eq(research.id, id));
+}
+
+export async function saveResearchPlan(id: string, plan: ResearchPlan): Promise<void> {
+  const db = getDb();
+  await db.update(research).set({ plan, updatedAt: new Date() }).where(eq(research.id, id));
+}
+
+export interface AgentSummary {
+  outcome: "completed" | "limit_reached";
+  iterations: number;
+  searchesExecuted: number;
+  missingAreas: string[];
+}
+
+/** Persists the agent loop's final outcome alongside the terminal status - reuses the research table, no new model. */
+export async function saveAgentSummary(id: string, summary: AgentSummary): Promise<void> {
+  const db = getDb();
+  await db
+    .update(research)
+    .set({
+      agentOutcome: summary.outcome,
+      iterations: summary.iterations,
+      searchesExecuted: summary.searchesExecuted,
+      missingAreas: summary.missingAreas,
+      updatedAt: new Date(),
+    })
+    .where(eq(research.id, id));
 }
 
 /** Inserts normalized sources, skipping any that already exist for this research (research_id, url). Returns the number of newly-stored rows. */

@@ -36,6 +36,13 @@
       "when": 1788421820969,
       "tag": "0004_add_account_issuer",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1788444516724,
+      "tag": "0005_loose_jetstream",
+      "breakpoints": true
     }
   ]
 }

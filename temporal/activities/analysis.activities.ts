@@ -1,7 +1,6 @@
 import { z } from "zod";
-import { zodResponseFormat } from "openai/helpers/zod";
 
-import { getOpenAIClient, ANALYSIS_MODEL } from "../lib/openai-client";
+import { parseStructured } from "../lib/openai-structured";
 import { formatFactsForPrompt, formatSourcesForPrompt } from "../../lib/analysis/format-context";
 import { sanitizeKeyFacts, sanitizeSourceIds } from "../../lib/analysis/sanitize";
 import { ANALYSIS_CATEGORIES, INSUFFICIENT_EVIDENCE, NOT_PUBLICLY_AVAILABLE } from "../../lib/analysis-types";
@@ -17,30 +16,6 @@ import type { ResearchSource } from "../../lib/temporal-types";
 const GROUNDING_RULE =
   "Only use the information explicitly provided below. Never invent, guess, or rely on outside " +
   "knowledge about this company. If the material does not support a field, say so explicitly.";
-
-async function parseStructured<T extends z.ZodTypeAny>(
-  schema: T,
-  schemaName: string,
-  systemPrompt: string,
-  userPrompt: string,
-): Promise<z.infer<T>> {
-  const openai = getOpenAIClient();
-
-  const completion = await openai.chat.completions.parse({
-    model: ANALYSIS_MODEL,
-    messages: [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: userPrompt },
-    ],
-    response_format: zodResponseFormat(schema, schemaName),
-  });
-
-  const parsed = completion.choices[0]?.message.parsed;
-  if (!parsed) {
-    throw new Error(`OpenAI returned no parseable ${schemaName} response`);
-  }
-  return parsed as z.infer<T>;
-}
 
 // ---------------------------------------------------------------------------
 // extractFacts

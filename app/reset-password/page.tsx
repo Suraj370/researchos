@@ -9,35 +9,45 @@ import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/componen
 import { Input } from "@/components/ui/input"
 import { authClient } from "@/lib/auth-client"
 
-function SignInForm() {
+function ResetPasswordForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const [email, setEmail] = React.useState("")
+  const token = searchParams.get("token")
+
   const [password, setPassword] = React.useState("")
   const [isSubmitting, setIsSubmitting] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
 
-  const canSubmit = email.trim() && password
+  const canSubmit = token && password.length >= 8
 
   async function handleSubmit() {
-    if (!canSubmit) return
+    if (!canSubmit || !token) return
 
     setIsSubmitting(true)
     setError(null)
 
-    const { error: signInError } = await authClient.signIn.email({
-      email: email.trim(),
-      password,
+    const { error: resetError } = await authClient.resetPassword({
+      newPassword: password,
+      token,
     })
 
-    if (signInError) {
-      setError(signInError.message ?? "Failed to sign in")
+    if (resetError) {
+      setError(resetError.message ?? "Failed to reset password")
       setIsSubmitting(false)
       return
     }
 
-    router.push(searchParams.get("redirectTo") || "/dashboard")
-    router.refresh()
+    router.push("/sign-in")
+  }
+
+  if (!token) {
+    return (
+      <CardContent>
+        <p className="text-sm text-destructive">
+          This reset link is missing or invalid. Request a new one from the sign-in page.
+        </p>
+      </CardContent>
+    )
   }
 
   return (
@@ -45,54 +55,30 @@ function SignInForm() {
       <CardContent className="space-y-4">
         <div className="space-y-1.5">
           <label className="text-xs font-semibold tracking-widest text-muted-foreground uppercase">
-            Email
+            New password
           </label>
           <Input
-            type="email"
-            aria-label="Email"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            onKeyDown={(event) => event.key === "Enter" && handleSubmit()}
-            placeholder="you@example.com"
-            autoFocus
-          />
-        </div>
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between">
-            <label className="text-xs font-semibold tracking-widest text-muted-foreground uppercase">
-              Password
-            </label>
-            <a href="/forgot-password" className="text-xs text-muted-foreground underline underline-offset-4">
-              Forgot password?
-            </a>
-          </div>
-          <Input
             type="password"
-            aria-label="Password"
+            aria-label="New password"
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             onKeyDown={(event) => event.key === "Enter" && handleSubmit()}
-            placeholder="••••••••"
+            placeholder="At least 8 characters"
+            autoFocus
           />
         </div>
         {error ? <p className="text-xs text-destructive">{error}</p> : null}
       </CardContent>
-      <CardFooter className="flex-col items-stretch gap-3">
-        <Button onPress={handleSubmit} isDisabled={!canSubmit || isSubmitting}>
-          {isSubmitting ? "Signing in..." : "Sign in"}
+      <CardFooter>
+        <Button onPress={handleSubmit} isDisabled={!canSubmit || isSubmitting} className="w-full">
+          {isSubmitting ? "Resetting..." : "Reset password"}
         </Button>
-        <p className="text-center text-sm text-muted-foreground">
-          No account?{" "}
-          <a href="/sign-up" className="text-foreground underline underline-offset-4">
-            Sign up
-          </a>
-        </p>
       </CardFooter>
     </>
   )
 }
 
-export default function SignInPage() {
+export default function ResetPasswordPage() {
   return (
     <div className="flex min-h-svh items-center justify-center p-6">
       <Card className="w-full max-w-sm">
@@ -100,10 +86,10 @@ export default function SignInPage() {
           <span className="mb-2 flex size-9 items-center justify-center bg-primary text-primary-foreground">
             <Waypoints className="size-4" />
           </span>
-          <CardTitle>Sign in to ResearchFlow</CardTitle>
+          <CardTitle>Set a new password</CardTitle>
         </CardHeader>
         <React.Suspense fallback={<CardContent className="text-sm text-muted-foreground">Loading…</CardContent>}>
-          <SignInForm />
+          <ResetPasswordForm />
         </React.Suspense>
       </Card>
     </div>

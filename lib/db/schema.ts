@@ -1,6 +1,7 @@
-import { pgTable, text, timestamp, uuid, real, jsonb, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, uuid, real, integer, jsonb, uniqueIndex } from "drizzle-orm/pg-core";
 
 import type { CompetitiveComparison, CompetitorAnalysis } from "@/lib/analysis-types";
+import type { ResearchPlan } from "@/lib/agent-types";
 import { user } from "./auth-schema";
 
 export * from "./auth-schema";
@@ -13,6 +14,12 @@ export const research = pgTable("research", {
   // Nullable: rows created before auth existed have no owner and are simply
   // invisible to every user's scoped queries rather than being deleted.
   userId: text("user_id").references(() => user.id, { onDelete: "cascade" }),
+  // Agent metadata (Phase 4) - all nullable, populated once the agent loop finishes.
+  plan: jsonb("plan").$type<ResearchPlan>(),
+  agentOutcome: text("agent_outcome"),
+  iterations: integer("iterations"),
+  searchesExecuted: integer("searches_executed"),
+  missingAreas: jsonb("missing_areas").$type<string[]>(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

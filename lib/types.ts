@@ -40,9 +40,14 @@ export interface WorkflowAgentActivity {
   currentStatus: string
   taskLabel: string
   taskDescription: string
-  sourcesProcessed: number
-  sourcesTotal: number
+  itemsLabel: string
+  itemsProcessed: number
+  itemsTotal: number
   progress: number
+  iteration?: number
+  maxIterations?: number
+  missingAreas?: string[]
+  lastDecision?: string
 }
 
 export interface Workflow {

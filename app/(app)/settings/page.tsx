@@ -1,3 +1,6 @@
+"use client"
+
+import * as React from "react"
 import { Bot, Search, Waypoints } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
@@ -11,6 +14,7 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { authClient, useSession } from "@/lib/auth-client"
 
 const INTEGRATIONS = [
   {
@@ -30,6 +34,163 @@ const INTEGRATIONS = [
   },
 ]
 
+function ProfileCard() {
+  const { data: session } = useSession()
+  const user = session?.user
+
+  const [name, setName] = React.useState("")
+  const [loadedName, setLoadedName] = React.useState<string | null>(null)
+  const [isSaving, setIsSaving] = React.useState(false)
+  const [error, setError] = React.useState<string | null>(null)
+  const [saved, setSaved] = React.useState(false)
+
+  // Sync the editable field from the session once it loads, without
+  // clobbering further edits on re-render (React's recommended pattern for
+  // deriving state from an async prop - see "Adjusting state when a prop
+  // changes" in the React docs).
+  if (user && user.name !== loadedName) {
+    setLoadedName(user.name)
+    setName(user.name)
+  }
+
+  async function handleSave() {
+    if (!name.trim()) return
+
+    setIsSaving(true)
+    setError(null)
+    setSaved(false)
+
+    const { error: updateError } = await authClient.updateUser({ name: name.trim() })
+
+    setIsSaving(false)
+
+    if (updateError) {
+      setError(updateError.message ?? "Failed to update profile")
+      return
+    }
+
+    setSaved(true)
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Profile</CardTitle>
+        <CardDescription>Your identity across ResearchFlow workspaces.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold tracking-widest text-muted-foreground uppercase">
+              Name
+            </label>
+            <Input
+              aria-label="Name"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold tracking-widest text-muted-foreground uppercase">
+              Email
+            </label>
+            <Input aria-label="Email" value={user?.email ?? ""} disabled />
+          </div>
+        </div>
+        {error ? <p className="mt-3 text-xs text-destructive">{error}</p> : null}
+        {saved ? (
+          <p className="mt-3 text-xs text-emerald-600 dark:text-emerald-400">Profile updated.</p>
+        ) : null}
+      </CardContent>
+      <CardFooter className="justify-end">
+        <Button size="sm" onPress={handleSave} isDisabled={!name.trim() || isSaving}>
+          {isSaving ? "Saving..." : "Save changes"}
+        </Button>
+      </CardFooter>
+    </Card>
+  )
+}
+
+function PasswordCard() {
+  const [currentPassword, setCurrentPassword] = React.useState("")
+  const [newPassword, setNewPassword] = React.useState("")
+  const [isSubmitting, setIsSubmitting] = React.useState(false)
+  const [error, setError] = React.useState<string | null>(null)
+  const [success, setSuccess] = React.useState(false)
+
+  const canSubmit = currentPassword && newPassword.length >= 8
+
+  async function handleSubmit() {
+    if (!canSubmit) return
+
+    setIsSubmitting(true)
+    setError(null)
+    setSuccess(false)
+
+    const { error: changeError } = await authClient.changePassword({
+      currentPassword,
+      newPassword,
+      revokeOtherSessions: true,
+    })
+
+    setIsSubmitting(false)
+
+    if (changeError) {
+      setError(changeError.message ?? "Failed to change password")
+      return
+    }
+
+    setCurrentPassword("")
+    setNewPassword("")
+    setSuccess(true)
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Password</CardTitle>
+        <CardDescription>Change the password used to sign in.</CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-4 sm:grid-cols-2">
+        <div className="space-y-1.5">
+          <label className="text-xs font-semibold tracking-widest text-muted-foreground uppercase">
+            Current password
+          </label>
+          <Input
+            type="password"
+            aria-label="Current password"
+            value={currentPassword}
+            onChange={(event) => setCurrentPassword(event.target.value)}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-xs font-semibold tracking-widest text-muted-foreground uppercase">
+            New password
+          </label>
+          <Input
+            type="password"
+            aria-label="New password"
+            value={newPassword}
+            onChange={(event) => setNewPassword(event.target.value)}
+            placeholder="At least 8 characters"
+          />
+        </div>
+        {error ? <p className="text-xs text-destructive sm:col-span-2">{error}</p> : null}
+        {success ? (
+          <p className="text-xs text-emerald-600 sm:col-span-2 dark:text-emerald-400">
+            Password changed. Your other sessions have been signed out.
+          </p>
+        ) : null}
+      </CardContent>
+      <CardFooter className="justify-end">
+        <Button size="sm" onPress={handleSubmit} isDisabled={!canSubmit || isSubmitting}>
+          {isSubmitting ? "Updating..." : "Update password"}
+        </Button>
+      </CardFooter>
+    </Card>
+  )
+}
+
 export default function SettingsPage() {
   return (
     <div className="mx-auto max-w-2xl space-y-6">
@@ -42,33 +203,8 @@ export default function SettingsPage() {
         </p>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Profile</CardTitle>
-          <CardDescription>
-            Your identity across ResearchFlow workspaces.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold tracking-widest text-muted-foreground uppercase">
-                Name
-              </label>
-              <Input aria-label="Name" defaultValue="Ada Researcher" />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold tracking-widest text-muted-foreground uppercase">
-                Email
-              </label>
-              <Input aria-label="Email" defaultValue="ada@researchflow.dev" />
-            </div>
-          </div>
-        </CardContent>
-        <CardFooter className="justify-end">
-          <Button size="sm">Save changes</Button>
-        </CardFooter>
-      </Card>
+      <ProfileCard />
+      <PasswordCard />
 
       <Card>
         <CardHeader>
