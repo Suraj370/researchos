@@ -2,6 +2,7 @@ import { Connection, QueryNotRegisteredError, WorkflowClient } from "@temporalio
 
 import { RESEARCH_TASK_QUEUE } from "../lib/temporal-types";
 import type { ResearchInput, ResearchStatusUpdate } from "../lib/temporal-types";
+import { extractFailureMessage } from "../lib/temporal-failure";
 import {
   getResearchStatusQuery,
   researchWorkflow,
@@ -43,26 +44,31 @@ export async function getResearchStatus(
   try {
     return await handle.query(getResearchStatusQuery);
   } catch (err) {
-    if (err instanceof QueryNotRegisteredError) {
-      // The workflow hasn't registered its query handler yet (very early race),
-      // or it already completed and was evicted from the worker's sticky cache
-      // before we could query it. Disambiguate via the execution status.
-      const description = await handle.describe();
-      if (description.status.name === "COMPLETED") {
-        const result = await handle.result();
-        return {
-          researchId: result.researchId,
-          status: "completed",
-          message: result.message,
-        };
-      }
-
-      return {
-        researchId: workflowId.replace(/^research-/, ""),
-        status: "initializing",
-        message: "Research workflow starting",
-      };
+    if (!(err instanceof QueryNotRegisteredError)) {
+      throw err;
     }
-    throw err;
+
+    // The workflow hasn't registered its query handler yet (very early race),
+    // or it already reached a terminal state and was evicted from the worker's
+    // sticky cache before we could query it. Disambiguate via execution status.
+    const researchId = workflowId.replace(/^research-/, "");
+    const description = await handle.describe();
+
+    if (description.status.name === "COMPLETED") {
+      const result = await handle.result();
+      return { researchId: result.researchId, status: "completed", message: result.message };
+    }
+
+    if (description.status.name !== "RUNNING" && description.status.name !== "CONTINUED_AS_NEW") {
+      let message = `Workflow ${description.status.name.toLowerCase()}`;
+      try {
+        await handle.result();
+      } catch (resultErr) {
+        message = extractFailureMessage(resultErr) ?? message;
+      }
+      return { researchId, status: "failed", message };
+    }
+
+    return { researchId, status: "initializing", message: "Research workflow starting" };
   }
 }

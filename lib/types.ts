@@ -50,6 +50,7 @@ export interface Workflow {
   title: string
   objective: string
   instructions?: string
+  researchId?: string
   temporalWorkflowId?: string
   status: WorkflowStatus
   sourcesCount: number
@@ -77,5 +78,6 @@ export interface NewResearchInput {
   title: string
   objective: string
   instructions: string
-  temporalWorkflowId?: string
+  researchId: string
+  temporalWorkflowId: string
 }

@@ -2,14 +2,19 @@
 
 import * as React from "react"
 
-import { generateWorkflowId, INITIAL_WORKFLOWS } from "@/lib/mock-data"
-import type { NewResearchInput, Workflow, WorkflowStatus } from "@/lib/types"
+import { fetchResearchList } from "@/lib/api-client"
+import { adaptResearchRecord } from "@/lib/adapt-research-record"
+import { PHASE_PROGRESS, PHASE_STEPS } from "@/lib/workflow-phases"
+import type { NewResearchInput, ResearchSource, Workflow, WorkflowStatus } from "@/lib/types"
+import type { ResearchStatusUpdate } from "@/lib/temporal-types"
 
 interface WorkflowStoreValue {
   workflows: Workflow[]
+  isLoading: boolean
   addWorkflow: (input: NewResearchInput) => Workflow
   setWorkflowStatus: (id: string, status: WorkflowStatus) => void
-  completeWorkflow: (id: string, message: string) => void
+  applyResearchStatus: (id: string, status: ResearchStatusUpdate) => void
+  setWorkflowSources: (id: string, sources: ResearchSource[]) => void
 }
 
 const WorkflowStoreContext = React.createContext<WorkflowStoreValue | null>(null)
@@ -19,45 +24,62 @@ export function WorkflowStoreProvider({
 }: {
   children: React.ReactNode
 }) {
-  const [workflows, setWorkflows] = React.useState<Workflow[]>(INITIAL_WORKFLOWS)
+  const [workflows, setWorkflows] = React.useState<Workflow[]>([])
+  const [isLoading, setIsLoading] = React.useState(true)
+
+  React.useEffect(() => {
+    let cancelled = false
+
+    fetchResearchList()
+      .then((records) => {
+        if (cancelled) return
+        const fetched = records.map(adaptResearchRecord)
+        setWorkflows((current) => {
+          const known = new Set(current.map((workflow) => workflow.id))
+          return [...current, ...fetched.filter((workflow) => !known.has(workflow.id))]
+        })
+      })
+      .catch(() => {
+        // Non-fatal - the UI just starts empty if history can't be loaded.
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const addWorkflow = React.useCallback((input: NewResearchInput) => {
     const workflow: Workflow = {
-      id: generateWorkflowId(),
+      id: input.researchId,
       title: input.title,
       objective: input.objective,
       instructions: input.instructions || undefined,
+      researchId: input.researchId,
       temporalWorkflowId: input.temporalWorkflowId,
       status: "running",
       sourcesCount: 0,
       startedLabel: "Just now",
       durationLabel: "—",
-      progress: 4,
-      steps: [
-        {
-          id: "plan",
-          name: "Research plan generated",
-          status: "running",
-          timestamp: "now",
-          description: "Breaking the objective down into research steps.",
-        },
-        { id: "queries", name: "Search queries generated", status: "pending" },
-        { id: "gather", name: "Gathering sources", status: "pending" },
-        { id: "compare", name: "Comparing findings", status: "pending" },
-        { id: "fact-check", name: "Fact checking", status: "pending" },
-        { id: "report", name: "Generate final report", status: "pending" },
-      ],
-      activities: [
-        { id: "a1", timestamp: "now", event: "workflow.started" },
-      ],
+      progress: PHASE_PROGRESS.initializing,
+      steps: PHASE_STEPS.map((phase, index) => ({
+        id: phase.id,
+        name: phase.name,
+        status: index === 0 ? "running" : "pending",
+        timestamp: index === 0 ? "now" : undefined,
+        description: index === 0 ? "Research workflow starting" : undefined,
+      })),
+      activities: [{ id: "a1", timestamp: "now", event: "workflow.started" }],
       sources: [],
       agentActivity: {
-        currentStatus: "Generating a research plan for the objective.",
-        taskLabel: "Planning",
-        taskDescription: "Breaking the objective into concrete research steps.",
+        currentStatus: "Research workflow starting",
+        taskLabel: "Initializing",
+        taskDescription: "Setting up the research workflow.",
         sourcesProcessed: 0,
         sourcesTotal: 0,
-        progress: 4,
+        progress: PHASE_PROGRESS.initializing,
       },
     }
 
@@ -76,37 +98,87 @@ export function WorkflowStoreProvider({
     []
   )
 
-  const completeWorkflow = React.useCallback((id: string, message: string) => {
+  const applyResearchStatus = React.useCallback((id: string, status: ResearchStatusUpdate) => {
     setWorkflows((current) =>
       current.map((workflow) => {
-        if (workflow.id !== id || workflow.status === "completed") return workflow
+        if (workflow.id !== id) return workflow
+        if (workflow.status === "completed" || workflow.status === "failed") return workflow
+
+        if (status.status === "completed") {
+          return {
+            ...workflow,
+            status: "completed",
+            progress: 100,
+            durationLabel: workflow.durationLabel === "—" ? "< 1s" : workflow.durationLabel,
+            steps: workflow.steps.map((step) => ({ ...step, status: "completed" })),
+            activities: [
+              ...workflow.activities,
+              {
+                id: `a${workflow.activities.length + 1}`,
+                timestamp: "now",
+                event: "workflow.completed",
+                detail: status.message,
+              },
+            ],
+            agentActivity: workflow.agentActivity
+              ? {
+                  ...workflow.agentActivity,
+                  currentStatus: status.message,
+                  taskLabel: "Completed",
+                  taskDescription: status.message,
+                  progress: 100,
+                }
+              : workflow.agentActivity,
+          }
+        }
+
+        if (status.status === "failed") {
+          return {
+            ...workflow,
+            status: "failed",
+            steps: workflow.steps.map((step) =>
+              step.status === "running" ? { ...step, status: "failed", description: status.message } : step
+            ),
+            activities: [
+              ...workflow.activities,
+              {
+                id: `a${workflow.activities.length + 1}`,
+                timestamp: "now",
+                event: "workflow.failed",
+                detail: status.message,
+              },
+            ],
+            agentActivity: workflow.agentActivity
+              ? { ...workflow.agentActivity, currentStatus: status.message, taskLabel: "Failed" }
+              : workflow.agentActivity,
+          }
+        }
+
+        const phaseIndex = PHASE_STEPS.findIndex((phase) => phase.id === status.status)
+        if (phaseIndex === -1) return workflow
+
+        const currentStep = workflow.steps[phaseIndex]
+        if (currentStep?.status === "running" && currentStep.description === status.message) {
+          return workflow
+        }
+
+        const progress = PHASE_PROGRESS[status.status]
 
         return {
           ...workflow,
-          status: "completed",
-          progress: 100,
-          durationLabel:
-            workflow.durationLabel === "—" ? "< 1s" : workflow.durationLabel,
-          steps: workflow.steps.map((step) => ({
-            ...step,
-            status: "completed",
-          })),
-          activities: [
-            ...workflow.activities,
-            {
-              id: `a${workflow.activities.length + 1}`,
-              timestamp: "now",
-              event: "workflow.completed",
-              detail: message,
-            },
-          ],
+          progress,
+          steps: workflow.steps.map((step, index) => {
+            if (index < phaseIndex) return step.status === "completed" ? step : { ...step, status: "completed" }
+            if (index === phaseIndex) return { ...step, status: "running", description: status.message }
+            return step
+          }),
           agentActivity: workflow.agentActivity
             ? {
                 ...workflow.agentActivity,
-                currentStatus: message,
-                taskLabel: "Completed",
-                taskDescription: message,
-                progress: 100,
+                currentStatus: status.message,
+                taskLabel: PHASE_STEPS[phaseIndex].name,
+                taskDescription: status.message,
+                progress,
               }
             : workflow.agentActivity,
         }
@@ -114,9 +186,19 @@ export function WorkflowStoreProvider({
     )
   }, [])
 
+  const setWorkflowSources = React.useCallback((id: string, sources: ResearchSource[]) => {
+    setWorkflows((current) =>
+      current.map((workflow) =>
+        workflow.id === id
+          ? { ...workflow, sources, sourcesCount: sources.length }
+          : workflow
+      )
+    )
+  }, [])
+
   const value = React.useMemo(
-    () => ({ workflows, addWorkflow, setWorkflowStatus, completeWorkflow }),
-    [workflows, addWorkflow, setWorkflowStatus, completeWorkflow]
+    () => ({ workflows, isLoading, addWorkflow, setWorkflowStatus, applyResearchStatus, setWorkflowSources }),
+    [workflows, isLoading, addWorkflow, setWorkflowStatus, applyResearchStatus, setWorkflowSources]
   )
 
   return (

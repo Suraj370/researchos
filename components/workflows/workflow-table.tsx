@@ -66,7 +66,13 @@ function WorkflowRowActions({ workflow }: { workflow: Workflow }) {
   )
 }
 
-export function WorkflowTable({ workflows }: { workflows: Workflow[] }) {
+export function WorkflowTable({
+  workflows,
+  isLoading = false,
+}: {
+  workflows: Workflow[]
+  isLoading?: boolean
+}) {
   return (
     <Table aria-label="Workflows">
       <TableHeader>
@@ -81,7 +87,7 @@ export function WorkflowTable({ workflows }: { workflows: Workflow[] }) {
         {workflows.length === 0 && (
           <TableRow>
             <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
-              No workflows match your filters.
+              {isLoading ? "Loading workflows…" : "No workflows match your filters."}
             </TableCell>
           </TableRow>
         )}

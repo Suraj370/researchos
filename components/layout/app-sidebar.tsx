@@ -1,6 +1,6 @@
 "use client"
 
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
 import {
   Database,
   FileText,
@@ -30,6 +30,7 @@ import {
   SidebarMenuItem,
   SidebarSeparator,
 } from "@/components/ui/sidebar"
+import { signOut, useSession } from "@/lib/auth-client"
 
 const NAV_ITEMS = [
   { title: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
@@ -39,8 +40,23 @@ const NAV_ITEMS = [
   { title: "Reports", href: "/reports", icon: FileText },
 ]
 
+function getInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean)
+  const initials = parts.length > 1 ? `${parts[0][0]}${parts[parts.length - 1][0]}` : parts[0]?.slice(0, 2)
+  return (initials || "?").toUpperCase()
+}
+
 export function AppSidebar() {
   const pathname = usePathname()
+  const router = useRouter()
+  const { data: session } = useSession()
+  const user = session?.user
+
+  async function handleSignOut() {
+    await signOut()
+    router.push("/sign-in")
+    router.refresh()
+  }
 
   return (
     <Sidebar collapsible="icon">
@@ -104,14 +120,14 @@ export function AppSidebar() {
             <DropdownMenuTrigger>
               <SidebarMenuButton size="lg" className="gap-2.5">
                 <span className="flex size-7 shrink-0 items-center justify-center bg-secondary font-heading text-xs font-semibold text-secondary-foreground">
-                  AR
+                  {user ? getInitials(user.name) : "…"}
                 </span>
                 <span className="flex flex-col items-start leading-none">
                   <span className="text-sm font-medium normal-case">
-                    Ada Researcher
+                    {user?.name ?? "Loading…"}
                   </span>
                   <span className="mt-1 font-mono text-[0.65rem] text-muted-foreground normal-case">
-                    ada@researchflow.dev
+                    {user?.email ?? ""}
                   </span>
                 </span>
               </SidebarMenuButton>
@@ -125,7 +141,7 @@ export function AppSidebar() {
                   Settings
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem>
+                <DropdownMenuItem onAction={handleSignOut}>
                   <LogOut />
                   Log out
                 </DropdownMenuItem>

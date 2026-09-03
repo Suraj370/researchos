@@ -1,8 +1,14 @@
-import type { ResearchInput, ResearchResult } from "../../lib/temporal-types";
+import type { ResearchInput } from "../../lib/temporal-types";
+
+export interface InitializeResearchResult {
+  researchId: string;
+  status: "initialized";
+  message: string;
+}
 
 export async function initializeResearch(
   input: ResearchInput,
-): Promise<ResearchResult> {
+): Promise<InitializeResearchResult> {
   return {
     researchId: input.researchId,
     status: "initialized",

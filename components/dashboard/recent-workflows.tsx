@@ -6,7 +6,7 @@ import { WorkflowTable } from "@/components/workflows/workflow-table"
 import { useWorkflowStore } from "@/lib/workflow-store"
 
 export function RecentWorkflows() {
-  const { workflows } = useWorkflowStore()
+  const { workflows, isLoading } = useWorkflowStore()
 
   return (
     <Card className="gap-4">
@@ -18,7 +18,7 @@ export function RecentWorkflows() {
           </LinkButton>
         </CardAction>
       </CardHeader>
-      <WorkflowTable workflows={workflows.slice(0, 4)} />
+      <WorkflowTable workflows={workflows.slice(0, 4)} isLoading={isLoading} />
     </Card>
   )
 }

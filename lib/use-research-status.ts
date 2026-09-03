@@ -7,27 +7,25 @@ import type { ResearchStatusUpdate } from "@/lib/temporal-types"
 
 const POLL_INTERVAL_MS = 1500
 
-export function useResearchStatus(workflowId: string | undefined) {
+const TERMINAL_STATUSES = new Set(["completed", "failed"])
+
+export function useResearchStatus(researchId: string | undefined) {
   const [status, setStatus] = React.useState<ResearchStatusUpdate | null>(null)
   const [error, setError] = React.useState<string | null>(null)
 
   React.useEffect(() => {
-    if (!workflowId) {
-      setStatus(null)
-      setError(null)
-      return
-    }
+    if (!researchId) return
 
     let cancelled = false
     let timer: ReturnType<typeof setTimeout>
 
     async function poll() {
       try {
-        const next = await fetchResearchStatus(workflowId as string)
+        const next = await fetchResearchStatus(researchId as string)
         if (cancelled) return
         setStatus(next)
         setError(null)
-        if (next.status !== "completed") {
+        if (!TERMINAL_STATUSES.has(next.status)) {
           timer = setTimeout(poll, POLL_INTERVAL_MS)
         }
       } catch (err) {
@@ -43,7 +41,7 @@ export function useResearchStatus(workflowId: string | undefined) {
       cancelled = true
       clearTimeout(timer)
     }
-  }, [workflowId])
+  }, [researchId])
 
   return { status, error }
 }

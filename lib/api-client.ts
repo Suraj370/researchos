@@ -1,34 +1,33 @@
-import type { ResearchStatusUpdate } from "@/lib/temporal-types"
+import { orpc } from "@/lib/orpc-client"
+import type { ResearchRecord, ResearchSource, ResearchStatusUpdate } from "@/lib/temporal-types"
+import type { CompetitiveComparison, CompetitorAnalysis } from "@/lib/analysis-types"
 
 export interface StartResearchResponse {
   researchId: string
   workflowId: string
 }
 
-export async function startResearch(query: string): Promise<StartResearchResponse> {
-  const response = await fetch("/api/research", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ query }),
-  })
-
-  if (!response.ok) {
-    const body = await response.json().catch(() => null)
-    throw new Error(body?.error || "Failed to start research")
-  }
-
-  return response.json()
+export async function startResearch(title: string, query: string): Promise<StartResearchResponse> {
+  return orpc.research.create({ title, query })
 }
 
-export async function fetchResearchStatus(
-  workflowId: string,
-): Promise<ResearchStatusUpdate> {
-  const response = await fetch(`/api/research/${workflowId}`)
+export async function fetchResearchList(): Promise<ResearchRecord[]> {
+  return orpc.research.list()
+}
 
-  if (!response.ok) {
-    const body = await response.json().catch(() => null)
-    throw new Error(body?.error || "Failed to fetch research status")
-  }
+export async function fetchResearchStatus(researchId: string): Promise<ResearchStatusUpdate> {
+  return orpc.research.getStatus({ id: researchId })
+}
 
-  return response.json()
+export async function fetchResearchSources(researchId: string): Promise<ResearchSource[]> {
+  return orpc.research.getSources({ id: researchId })
+}
+
+export interface ResearchAnalysisResponse {
+  analyses: CompetitorAnalysis[]
+  comparison: CompetitiveComparison | null
+}
+
+export async function fetchResearchAnalysis(researchId: string): Promise<ResearchAnalysisResponse> {
+  return orpc.research.getAnalysis({ id: researchId })
 }

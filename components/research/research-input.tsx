@@ -31,12 +31,13 @@ export function ResearchInput() {
     setError(null)
 
     try {
-      const { workflowId } = await startResearch(trimmedObjective)
+      const { researchId, workflowId } = await startResearch(trimmedTitle, trimmedObjective)
 
       const workflow = addWorkflow({
         title: trimmedTitle,
         objective: trimmedObjective,
         instructions: instructions.trim(),
+        researchId,
         temporalWorkflowId: workflowId,
       })
 

@@ -1,0 +1,1 @@
+ALTER TABLE "research" ADD COLUMN "title" text DEFAULT 'Untitled research' NOT NULL;

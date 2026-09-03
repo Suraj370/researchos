@@ -1,0 +1,41 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1788357755864,
+      "tag": "0000_common_photon",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1788413782968,
+      "tag": "0001_true_nuke",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1788415847416,
+      "tag": "0002_superb_maggott",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1788417119581,
+      "tag": "0003_brainy_terror",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1788421820969,
+      "tag": "0004_add_account_issuer",
+      "breakpoints": true
+    }
+  ]
+}

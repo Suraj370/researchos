@@ -49,7 +49,7 @@ function matchesDate(startedLabel: string, filter: string) {
 }
 
 export default function WorkflowsPage() {
-  const { workflows } = useWorkflowStore()
+  const { workflows, isLoading } = useWorkflowStore()
   const [search, setSearch] = React.useState("")
   const [status, setStatus] = React.useState<WorkflowStatus | "all">("all")
   const [date, setDate] = React.useState<"all" | "today" | "yesterday" | "older">("all")
@@ -132,7 +132,7 @@ export default function WorkflowsPage() {
       </div>
 
       <Card>
-        <WorkflowTable workflows={filtered} />
+        <WorkflowTable workflows={filtered} isLoading={isLoading} />
       </Card>
     </div>
   )

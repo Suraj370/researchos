@@ -36,12 +36,13 @@ export function NewResearchDialog() {
     setError(null)
 
     try {
-      const { workflowId } = await startResearch(form.objective.trim())
+      const { researchId, workflowId } = await startResearch(form.title.trim(), form.objective.trim())
 
       addWorkflow({
         title: form.title.trim(),
         objective: form.objective.trim(),
         instructions: form.instructions.trim(),
+        researchId,
         temporalWorkflowId: workflowId,
       })
 

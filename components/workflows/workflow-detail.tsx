@@ -13,6 +13,10 @@ import { WorkflowProgress } from "@/components/workflows/workflow-progress"
 import { WorkflowTimeline } from "@/components/workflows/workflow-timeline"
 import { useWorkflowActions } from "@/components/workflows/use-workflow-actions"
 import { SourceTable } from "@/components/sources/source-table"
+import { CompetitorAnalysisCard } from "@/components/workflows/competitor-analysis-panel"
+import { FeatureComparisonTable } from "@/components/workflows/feature-comparison-table"
+import { adaptResearchSource } from "@/lib/adapt-research-source"
+import { fetchResearchAnalysis, fetchResearchSources, type ResearchAnalysisResponse } from "@/lib/api-client"
 import { useResearchStatus } from "@/lib/use-research-status"
 import { useWorkflowStore } from "@/lib/workflow-store"
 import type { Workflow } from "@/lib/types"
@@ -20,16 +24,52 @@ import type { Workflow } from "@/lib/types"
 export function WorkflowDetail({ workflow }: { workflow: Workflow }) {
   const { canPause, canResume, canCancel, pause, resume, cancel } =
     useWorkflowActions(workflow)
-  const { completeWorkflow } = useWorkflowStore()
+  const { applyResearchStatus, setWorkflowSources } = useWorkflowStore()
   const { status: temporalStatus, error: temporalError } = useResearchStatus(
-    workflow.temporalWorkflowId
+    workflow.researchId
   )
+  const [analysis, setAnalysis] = React.useState<ResearchAnalysisResponse | null>(null)
 
   React.useEffect(() => {
-    if (temporalStatus?.status === "completed" && workflow.status !== "completed") {
-      completeWorkflow(workflow.id, temporalStatus.message)
+    if (temporalStatus) {
+      applyResearchStatus(workflow.id, temporalStatus)
     }
-  }, [temporalStatus, workflow.id, workflow.status, completeWorkflow])
+  }, [temporalStatus, workflow.id, applyResearchStatus])
+
+  React.useEffect(() => {
+    if (temporalStatus?.status !== "completed" || !workflow.researchId) return
+
+    let cancelled = false
+    fetchResearchSources(workflow.researchId)
+      .then((sources) => {
+        if (cancelled) return
+        setWorkflowSources(workflow.id, sources.map(adaptResearchSource))
+      })
+      .catch(() => {
+        // Non-fatal - the workflow already reports completed via its status.
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [temporalStatus?.status, workflow.researchId, workflow.id, setWorkflowSources])
+
+  React.useEffect(() => {
+    if (temporalStatus?.status !== "completed" || !workflow.researchId) return
+
+    let cancelled = false
+    fetchResearchAnalysis(workflow.researchId)
+      .then((result) => {
+        if (!cancelled) setAnalysis(result)
+      })
+      .catch(() => {
+        // Non-fatal - the workflow already reports completed via its status.
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [temporalStatus?.status, workflow.researchId])
 
   const completedSteps = workflow.steps.filter(
     (step) => step.status === "completed"
@@ -57,7 +97,7 @@ export function WorkflowDetail({ workflow }: { workflow: Workflow }) {
             </div>
             <StatusBadge status={workflow.status} />
           </div>
-          {workflow.temporalWorkflowId && (
+          {workflow.researchId && (
             <p className="pl-1 font-mono text-xs text-muted-foreground">
               Temporal:{" "}
               {temporalError
@@ -106,6 +146,11 @@ export function WorkflowDetail({ workflow }: { workflow: Workflow }) {
             <TabsTrigger id="sources">
               Sources ({workflow.sources.length})
             </TabsTrigger>
+            {analysis && analysis.analyses.length > 0 && (
+              <TabsTrigger id="analysis">
+                Analysis ({analysis.analyses.length})
+              </TabsTrigger>
+            )}
           </TabsList>
           <TabsContent id="timeline">
             <Card>
@@ -122,6 +167,21 @@ export function WorkflowDetail({ workflow }: { workflow: Workflow }) {
               <SourceTable sources={workflow.sources} variant="workflow" />
             </Card>
           </TabsContent>
+          {analysis && analysis.analyses.length > 0 && (
+            <TabsContent id="analysis" className="space-y-6">
+              {analysis.comparison && analysis.comparison.featureComparison.length > 0 && (
+                <Card>
+                  <FeatureComparisonTable comparison={analysis.comparison} />
+                </Card>
+              )}
+              {analysis.analyses.map((competitorAnalysis) => (
+                <CompetitorAnalysisCard
+                  key={competitorAnalysis.competitor}
+                  analysis={competitorAnalysis}
+                />
+              ))}
+            </TabsContent>
+          )}
         </Tabs>
 
         <div className="space-y-6">
