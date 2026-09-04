@@ -1,6 +1,7 @@
 # ResearchOS
 
 An AI-powered competitive research tool. Give it a query, and it autonomously researches every competitor in parallel — searching the web, evaluating its own coverage, and deciding whether to dig deeper — then hands back structured, comparable analyses.
+<img width="1200" height="630" alt="image" src="https://github.com/user-attachments/assets/417d14e1-8ce8-4194-9464-3c8277d89307" />
 
 ## Problem
 
