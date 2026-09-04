@@ -210,6 +210,15 @@ export function WorkflowStoreProvider({
             if (index === phaseIndex) return { ...step, status: "running", description: stepDescription }
             return step.status === "pending" ? step : { ...step, status: "pending", description: undefined }
           }),
+          activities: [
+            ...workflow.activities,
+            {
+              id: `a${workflow.activities.length + 1}`,
+              timestamp: "now",
+              event: status.status,
+              detail: stepDescription,
+            },
+          ],
           agentActivity: workflow.agentActivity
             ? mergeAgentInfo(
                 {

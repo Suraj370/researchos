@@ -43,6 +43,13 @@
       "when": 1788444516724,
       "tag": "0005_loose_jetstream",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1788508517354,
+      "tag": "0006_luxuriant_whiplash",
+      "breakpoints": true
     }
   ]
 }

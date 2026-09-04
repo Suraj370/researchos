@@ -1,24 +1,26 @@
-import { defineQuery, proxyActivities, setHandler } from "@temporalio/workflow";
+import {
+  defineQuery,
+  executeChild,
+  proxyActivities,
+  setHandler,
+  workflowInfo,
+  ParentClosePolicy,
+} from "@temporalio/workflow";
 
 import { GET_RESEARCH_STATUS_QUERY } from "../../lib/temporal-types";
 import type { ResearchInput, ResearchResult, ResearchStatusUpdate } from "../../lib/temporal-types";
 import { extractFailureMessage } from "../../lib/temporal-failure";
-import { mergeCompetitorAnalysis } from "../../lib/analysis/merge-analysis";
 import { buildCompetitiveComparison } from "../../lib/analysis/build-comparison";
-import { normalizeQueryForDedup } from "../../lib/research/normalize-query";
-import { dedupeSearches, capSearches } from "../../lib/research/dedupe-searches";
-import { decideLoopContinuation } from "../../lib/research/agent-loop";
+import { aggregateCompetitorOutcome } from "../../lib/research/aggregate-competitor-results";
+import { buildCompetitorWorkflowId } from "../../lib/research/competitor-workflow-id";
 import { AGENT_LIMITS } from "../../lib/agent-types";
-import type { AgentState, PlannedSearch } from "../../lib/agent-types";
-import type { CompetitorAnalysis } from "../../lib/analysis-types";
+import type { AgentState, CompetitorProgress, CompetitorResearchInput, CompetitorResearchResult, PlannedSearch } from "../../lib/agent-types";
 import type * as initActivities from "../activities/research.activities";
 import type * as competitorActivities from "../activities/competitors.activities";
-import type * as exaActivities from "../activities/exa.activities";
-import type * as normalizeActivities from "../activities/normalize.activities";
 import type * as storeActivities from "../activities/store.activities";
-import type * as analysisActivities from "../activities/analysis.activities";
 import type * as agentActivities from "../activities/agent.activities";
-import type { SourceToNormalize } from "../../lib/research/normalize-sources";
+import { AGENT_ACTIVITY_OPTIONS, STORE_ACTIVITY_OPTIONS } from "../lib/activity-options";
+import { competitorResearchWorkflow } from "./competitor-research.workflow";
 
 const { initializeResearch } = proxyActivities<typeof initActivities>({
   startToCloseTimeout: "30 seconds",
@@ -41,77 +43,19 @@ const { searchCompetitors } = proxyActivities<typeof competitorActivities>({
   },
 });
 
-const { searchExa } = proxyActivities<typeof exaActivities>({
-  startToCloseTimeout: "45 seconds",
-  retry: {
-    initialInterval: "1 second",
-    backoffCoefficient: 2,
-    maximumInterval: "20 seconds",
-    maximumAttempts: 4,
-    nonRetryableErrorTypes: ["NonRetryableError"],
-  },
-});
-
-const { normalizeSources } = proxyActivities<typeof normalizeActivities>({
-  startToCloseTimeout: "30 seconds",
-  retry: {
-    initialInterval: "1 second",
-    backoffCoefficient: 2,
-    maximumInterval: "10 seconds",
-    maximumAttempts: 3,
-  },
-});
-
 const {
-  storeResearchResults,
-  getStoredSources,
   storeResearchPlan,
-  storeCompetitorAnalysis,
   storeCompetitiveComparison,
   storeAgentSummary,
+  storeCompetitorResults,
+  getStoredCompetitorAnalyses,
   completeResearch,
   markResearchFailed,
-} = proxyActivities<typeof storeActivities>({
-  startToCloseTimeout: "30 seconds",
-  retry: {
-    initialInterval: "1 second",
-    backoffCoefficient: 2,
-    maximumInterval: "10 seconds",
-    maximumAttempts: 4,
-    nonRetryableErrorTypes: ["NonRetryableError"],
-  },
-});
+} = proxyActivities<typeof storeActivities>(STORE_ACTIVITY_OPTIONS);
 
-const { extractFacts, analyzeCompetitor, analyzePricing, analyzeFeatures, analyzePositioning } =
-  proxyActivities<typeof analysisActivities>({
-    startToCloseTimeout: "90 seconds",
-    retry: {
-      initialInterval: "2 seconds",
-      backoffCoefficient: 2,
-      maximumInterval: "30 seconds",
-      maximumAttempts: 3,
-      nonRetryableErrorTypes: ["NonRetryableError"],
-    },
-  });
-
-const { createResearchPlan, decideNextSearches, evaluateResearch } = proxyActivities<typeof agentActivities>({
-  startToCloseTimeout: "90 seconds",
-  retry: {
-    initialInterval: "2 seconds",
-    backoffCoefficient: 2,
-    maximumInterval: "30 seconds",
-    maximumAttempts: 3,
-    nonRetryableErrorTypes: ["NonRetryableError"],
-  },
-});
+const { createResearchPlan } = proxyActivities<typeof agentActivities>(AGENT_ACTIVITY_OPTIONS);
 
 export const getResearchStatusQuery = defineQuery<ResearchStatusUpdate>(GET_RESEARCH_STATUS_QUERY);
-
-/** Caps how many Exa searches run at once within a single round - genuinely parallel, but bounded. */
-const SEARCH_CONCURRENCY = 6;
-
-/** Caps how many competitors' AI-analysis pipelines run at once. */
-const ANALYSIS_CONCURRENCY = 3;
 
 export async function researchAgentWorkflow(input: ResearchInput): Promise<ResearchResult> {
   let status: ResearchStatusUpdate = {
@@ -121,13 +65,10 @@ export async function researchAgentWorkflow(input: ResearchInput): Promise<Resea
   };
   setHandler(getResearchStatusQuery, () => status);
 
-  // Compact, workflow-local agent state - never holds raw page content.
-  const executedQueries = new Set<string>();
-  let totalSearches = 0;
   let sourcesCollected = 0;
-  let iteration = 0;
+  let totalSearches = 0;
   let missingAreas: string[] = [];
-  let lastDecisionReason: string | undefined;
+  let competitorProgress: CompetitorProgress[] = [];
 
   function setStatus(
     phase: ResearchStatusUpdate["status"],
@@ -141,54 +82,56 @@ export async function researchAgentWorkflow(input: ResearchInput): Promise<Resea
       message,
       progress: { label: "Sources collected", completed: sourcesCollected, total: sourcesCollected },
       agent: {
-        iteration,
+        iteration: 0,
         maxIterations: AGENT_LIMITS.MAX_RESEARCH_ITERATIONS,
         phase: agentPhase,
         searchesExecuted: totalSearches,
         sourcesCollected,
         currentTask,
-        lastDecision: lastDecisionReason,
         missingAreas,
       },
+      competitors: competitorProgress,
     };
   }
 
-  /** Executes a batch of searches (bounded concurrency), normalizes and stores the results, and updates running totals. */
-  async function runSearchRound(searches: PlannedSearch[]): Promise<void> {
-    const batches: SourceToNormalize[] = [];
-
-    for (let i = 0; i < searches.length; i += SEARCH_CONCURRENCY) {
-      const batch = searches.slice(i, i + SEARCH_CONCURRENCY);
-
-      setStatus(
-        "searching",
-        `Searching ${batch.map((task) => `${task.competitor} ${task.category}`).join(", ")}`,
-        "searching",
-        `Searching ${batch.length} ${batch.length === 1 ? "query" : "queries"}`,
-      );
-
-      const batchResults = await Promise.all(
-        batch.map(async (task) => {
-          const results = await searchExa({
-            researchId: input.researchId,
-            competitor: task.competitor,
-            query: task.query,
-          });
-          return { competitor: task.competitor, category: task.category, results };
-        }),
-      );
-
-      batches.push(...batchResults);
+  /**
+   * Starts one competitor's Child Workflow and waits for it, in isolation from
+   * every other competitor: a rejection here (the child exhausted its Activity
+   * retries and failed) is caught right here and turned into a "failed" result
+   * instead of propagating - that's what stops one bad competitor from taking
+   * down the whole research. Never awaited sequentially by the caller; see the
+   * Promise.all over this function below, which starts every child before any
+   * of them are awaited.
+   */
+  async function runCompetitorChild(
+    competitor: string,
+    childInput: CompetitorResearchInput,
+  ): Promise<CompetitorResearchResult> {
+    try {
+      const result = await executeChild(competitorResearchWorkflow, {
+        workflowId: buildCompetitorWorkflowId(input.researchId, competitor),
+        // Inherit the parent's own task queue rather than hardcoding the
+        // production constant - keeps child dispatch consistent with wherever
+        // this parent execution is actually running (including in tests).
+        taskQueue: workflowInfo().taskQueue,
+        parentClosePolicy: ParentClosePolicy.PARENT_CLOSE_POLICY_TERMINATE,
+        args: [childInput],
+      });
+      return result;
+    } catch (err) {
+      const message = extractFailureMessage(err) ?? `Research failed for ${competitor}`;
+      return {
+        researchId: input.researchId,
+        competitor,
+        status: "failed",
+        sourceCount: 0,
+        iterations: 0,
+        searchesExecuted: 0,
+        missingAreas: [],
+        analysisCompleted: false,
+        error: message,
+      };
     }
-
-    for (const search of searches) {
-      executedQueries.add(normalizeQueryForDedup(search.query));
-    }
-    totalSearches += searches.length;
-
-    const normalized = await normalizeSources({ researchId: input.researchId, batches });
-    const { storedCount } = await storeResearchResults({ researchId: input.researchId, sources: normalized });
-    sourcesCollected += storedCount;
   }
 
   try {
@@ -208,154 +151,92 @@ export async function researchAgentWorkflow(input: ResearchInput): Promise<Resea
     });
     await storeResearchPlan({ researchId: input.researchId, plan });
 
-    const initialSearches = dedupeSearches(plan.initialQueries, executedQueries).slice(
-      0,
-      AGENT_LIMITS.MAX_TOTAL_SEARCHES,
+    const initialQueriesByCompetitor = new Map<string, PlannedSearch[]>();
+    for (const query of plan.initialQueries) {
+      const existing = initialQueriesByCompetitor.get(query.competitor) ?? [];
+      existing.push(query);
+      initialQueriesByCompetitor.set(query.competitor, existing);
+    }
+
+    competitorProgress = competitors.map((competitor) => ({ competitor, status: "pending", sourceCount: 0 }));
+    setStatus(
+      "searching",
+      `Researching ${competitors.length} competitors in parallel`,
+      "searching",
+      `Starting ${competitors.length} competitor child workflows`,
     );
-    if (initialSearches.length > 0) {
-      await runSearchRound(initialSearches);
-    }
 
-    let outcome: "completed" | "limit_reached" | null = null;
+    // Fan out: .map() calls runCompetitorChild for every competitor, which calls
+    // executeChild, before any of those calls is awaited - so every child
+    // workflow start is requested in the same workflow task, achieving genuine
+    // concurrency (not "await notion(); await airtable(); await monday();").
+    // Each settling child updates its own entry as soon as it resolves, so the
+    // live status reflects real progress rather than a single end-of-run jump.
+    const competitorResults = await Promise.all(
+      competitors.map((competitor) =>
+        runCompetitorChild(competitor, {
+          researchId: input.researchId,
+          competitor,
+          researchRequest: input.query,
+          objectives: plan.objectives,
+          searchCategories: plan.searchCategories,
+          initialQueries: initialQueriesByCompetitor.get(competitor) ?? [],
+        }).then((result) => {
+          competitorProgress = competitorProgress.map((entry) =>
+            entry.competitor === competitor
+              ? { competitor, status: result.status, sourceCount: result.sourceCount }
+              : entry,
+          );
+          setStatus(
+            "searching",
+            `${competitor} ${result.status}`,
+            "searching",
+            `Researching ${competitors.length} competitors in parallel`,
+          );
+          return result;
+        }),
+      ),
+    );
 
-    for (iteration = 1; iteration <= AGENT_LIMITS.MAX_RESEARCH_ITERATIONS; iteration++) {
-      setStatus(
-        "evaluating",
-        `Evaluating research coverage (iteration ${iteration})`,
-        "evaluating",
-        "Evaluating research coverage",
-      );
-      const evaluation = await evaluateResearch({
-        researchId: input.researchId,
-        query: input.query,
-        competitors,
-        categories: plan.searchCategories,
-        executedSearchCount: totalSearches,
-        uniqueSearchCount: executedQueries.size,
-        iteration,
-      });
-      missingAreas = evaluation.missingAreas;
+    sourcesCollected = competitorResults.reduce((sum, result) => sum + result.sourceCount, 0);
+    totalSearches = competitorResults.reduce((sum, result) => sum + result.searchesExecuted, 0);
+    missingAreas = competitorResults.flatMap((result) => result.missingAreas);
+    const outcome = aggregateCompetitorOutcome(competitorResults);
 
-      const continuation = decideLoopContinuation({
-        iteration,
-        maxIterations: AGENT_LIMITS.MAX_RESEARCH_ITERATIONS,
-        sufficient: evaluation.sufficient,
-        totalSearches,
-        maxTotalSearches: AGENT_LIMITS.MAX_TOTAL_SEARCHES,
-        sourcesCollected,
-        maxSources: AGENT_LIMITS.MAX_SOURCES_PER_RESEARCH,
-      });
-
-      if (continuation.stop) {
-        outcome = continuation.outcome ?? "limit_reached";
-        break;
-      }
-
-      setStatus(
-        "searching",
-        `Deciding next searches (iteration ${iteration})`,
-        "searching",
-        "Deciding what to search next",
-      );
-      const decision = await decideNextSearches({
-        researchId: input.researchId,
-        query: input.query,
-        competitors,
-        categories: plan.searchCategories,
-        previousQueries: Array.from(executedQueries),
-        missingAreas,
-        iteration,
-        maxIterations: AGENT_LIMITS.MAX_RESEARCH_ITERATIONS,
-      });
-      lastDecisionReason = decision.reason;
-
-      const deduped = dedupeSearches(decision.searches, executedQueries);
-      const remainingBudget = AGENT_LIMITS.MAX_TOTAL_SEARCHES - totalSearches;
-      const nextSearches = capSearches(deduped, AGENT_LIMITS.MAX_SEARCHES_PER_ITERATION, remainingBudget);
-
-      if (nextSearches.length === 0) {
-        outcome = "limit_reached";
-        break;
-      }
-
-      await runSearchRound(nextSearches);
-    }
-
-    if (outcome === null) {
-      outcome = "limit_reached";
-    }
+    await storeCompetitorResults({ researchId: input.researchId, results: competitorResults });
 
     setStatus(
       "analyzing",
-      `Research ${outcome === "completed" ? "sufficient" : "limit reached"} - preparing competitive analysis`,
-      outcome,
-      "Preparing competitive analysis",
+      "Building competitive comparison",
+      outcome === "completed" || outcome === "limit_reached" ? outcome : "evaluating",
+      "Aggregating competitor analyses",
     );
-    const storedSources = await getStoredSources({ researchId: input.researchId });
-
-    const analyses: CompetitorAnalysis[] = [];
-    for (let i = 0; i < competitors.length; i += ANALYSIS_CONCURRENCY) {
-      const competitorBatch = competitors.slice(i, i + ANALYSIS_CONCURRENCY);
-
-      setStatus(
-        "analyzing",
-        `Analyzing ${competitorBatch.join(", ")}`,
-        "evaluating",
-        `Analyzing ${competitorBatch.join(", ")}`,
-      );
-
-      const batchAnalyses = await Promise.all(
-        competitorBatch.map(async (competitor) => {
-          const competitorSources = storedSources.filter((source) => source.competitor === competitor);
-
-          const facts = await extractFacts({
-            researchId: input.researchId,
-            competitor,
-            sources: competitorSources,
-          });
-
-          const [synthesis, pricing, features, positioning] = await Promise.all([
-            analyzeCompetitor({ researchId: input.researchId, competitor, facts }),
-            analyzePricing({ competitor, sources: competitorSources, facts }),
-            analyzeFeatures({ competitor, facts }),
-            analyzePositioning({ competitor, facts }),
-          ]);
-
-          const analysis = mergeCompetitorAnalysis(
-            input.researchId,
-            competitor,
-            facts,
-            synthesis,
-            pricing,
-            features,
-            positioning,
-          );
-
-          await storeCompetitorAnalysis(analysis);
-          return analysis;
-        }),
-      );
-
-      analyses.push(...batchAnalyses);
-    }
+    const analyzedCompetitors = competitorResults.filter((result) => result.analysisCompleted);
+    const analyses = await getStoredCompetitorAnalyses({ researchId: input.researchId });
 
     if (analyses.length > 1) {
       const comparison = buildCompetitiveComparison(input.researchId, analyses);
       await storeCompetitiveComparison(comparison);
     }
 
+    const maxIterations = competitorResults.reduce((max, result) => Math.max(max, result.iterations), 0);
     await storeAgentSummary({
       researchId: input.researchId,
-      summary: { outcome, iterations: iteration, searchesExecuted: totalSearches, missingAreas },
+      summary: { outcome, iterations: maxIterations, searchesExecuted: totalSearches, missingAreas },
     });
     await completeResearch({ researchId: input.researchId });
 
+    const failedCount = competitorResults.length - analyzedCompetitors.length;
     const finalMessage =
       outcome === "completed"
         ? "Research completed"
-        : `Research completed with limit reached (${sourcesCollected} sources across ${totalSearches} searches)`;
+        : outcome === "completed_with_failures"
+          ? `Research completed with ${failedCount} of ${competitorResults.length} competitors failing`
+          : outcome === "limit_reached"
+            ? `Research completed with limit reached (${sourcesCollected} sources across ${totalSearches} searches)`
+            : "Research failed for all competitors";
 
-    setStatus("completed", finalMessage, outcome, finalMessage);
+    setStatus("completed", finalMessage, "completed", finalMessage);
 
     return {
       researchId: input.researchId,
@@ -363,8 +244,8 @@ export async function researchAgentWorkflow(input: ResearchInput): Promise<Resea
       message: finalMessage,
       competitors,
       sourceCount: sourcesCollected,
-      analyzedCount: analyses.length,
-      agent: { outcome, iterations: iteration, searchesExecuted: totalSearches, missingAreas },
+      analyzedCount: analyzedCompetitors.length,
+      agent: { outcome, iterations: maxIterations, searchesExecuted: totalSearches, missingAreas },
     };
   } catch (err) {
     const message = extractFailureMessage(err) ?? "Research workflow failed";

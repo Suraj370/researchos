@@ -10,7 +10,7 @@ import type {
   SourceType,
 } from "@/lib/temporal-types";
 import type { CompetitiveComparison, CompetitorAnalysis } from "@/lib/analysis-types";
-import type { ResearchPlan } from "@/lib/agent-types";
+import type { CompetitorResearchResult, ResearchAgentOutcome, ResearchPlan } from "@/lib/agent-types";
 
 export async function createResearchRecord(input: {
   id: string;
@@ -75,7 +75,7 @@ export async function saveResearchPlan(id: string, plan: ResearchPlan): Promise<
 }
 
 export interface AgentSummary {
-  outcome: "completed" | "limit_reached";
+  outcome: ResearchAgentOutcome;
   iterations: number;
   searchesExecuted: number;
   missingAreas: string[];
@@ -94,6 +94,12 @@ export async function saveAgentSummary(id: string, summary: AgentSummary): Promi
       updatedAt: new Date(),
     })
     .where(eq(research.id, id));
+}
+
+/** Full per-competitor breakdown (including failures) - preserved durably so child-level detail isn't discarded once the workflow completes. */
+export async function saveCompetitorResults(id: string, results: CompetitorResearchResult[]): Promise<void> {
+  const db = getDb();
+  await db.update(research).set({ competitorResults: results, updatedAt: new Date() }).where(eq(research.id, id));
 }
 
 /** Inserts normalized sources, skipping any that already exist for this research (research_id, url). Returns the number of newly-stored rows. */

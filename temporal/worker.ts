@@ -27,7 +27,7 @@ async function run() {
     connection,
     namespace: "default",
     taskQueue: RESEARCH_TASK_QUEUE,
-    workflowsPath: path.join(__dirname, "workflows", "research.workflow.ts"),
+    workflowsPath: path.join(__dirname, "workflows", "index.ts"),
     activities: {
       ...initActivities,
       ...competitorActivities,

@@ -1,7 +1,7 @@
 import { pgTable, text, timestamp, uuid, real, integer, jsonb, uniqueIndex } from "drizzle-orm/pg-core";
 
 import type { CompetitiveComparison, CompetitorAnalysis } from "@/lib/analysis-types";
-import type { ResearchPlan } from "@/lib/agent-types";
+import type { CompetitorResearchResult, ResearchPlan } from "@/lib/agent-types";
 import { user } from "./auth-schema";
 
 export * from "./auth-schema";
@@ -20,6 +20,9 @@ export const research = pgTable("research", {
   iterations: integer("iterations"),
   searchesExecuted: integer("searches_executed"),
   missingAreas: jsonb("missing_areas").$type<string[]>(),
+  // Phase 5A: full per-competitor child workflow breakdown, including failures -
+  // durable so child-level detail isn't discarded once the parent workflow completes.
+  competitorResults: jsonb("competitor_results").$type<CompetitorResearchResult[]>(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

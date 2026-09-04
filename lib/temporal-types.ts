@@ -1,4 +1,4 @@
-import type { AgentState } from "./agent-types";
+import type { AgentState, CompetitorProgress, ResearchAgentOutcome } from "./agent-types";
 
 export interface ResearchInput {
   researchId: string;
@@ -72,6 +72,8 @@ export interface ResearchStatusUpdate {
   message: string;
   progress?: ResearchStatusProgress;
   agent?: AgentState;
+  /** Per-competitor last-settled progress once parallel child research has started. */
+  competitors?: CompetitorProgress[];
 }
 
 export interface ResearchResult {
@@ -82,7 +84,7 @@ export interface ResearchResult {
   sourceCount: number;
   analyzedCount: number;
   agent?: {
-    outcome: "completed" | "limit_reached";
+    outcome: ResearchAgentOutcome;
     iterations: number;
     searchesExecuted: number;
     missingAreas: string[];
